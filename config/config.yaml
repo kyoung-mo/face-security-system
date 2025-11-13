@@ -1,4 +1,5 @@
 camera:
+  backend: picamera2
   device_index: 0          # OpenCV VideoCapture index
   width: 640
   height: 480
@@ -16,3 +17,6 @@ gpio:
 logging:
   access_log_path: "logs/access_log.csv"
   debug_log_path: "logs/debug.log"
+
+detection:
+  conf_threshold: 0.4

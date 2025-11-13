@@ -1,32 +1,73 @@
+from pathlib import Path
+
+import cv2
 import numpy as np
+from ultralytics import YOLO
+
+
+# __file__ = .../src/detection.py
+# parent        -> src
+# parent.parent -> face-security-system  ✅ 프로젝트 루트
+BASE_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_MODEL_PATH = BASE_DIR / "models" / "yolov8_face.onnx"
+
 
 class Detector:
-    def __init__(self, backend: str = "cpu", model_path: str | None = None, hailo_model_path: str | None = None):
+    def __init__(self, model_path=None, conf_threshold: float = 0.4):
         """
-        backend: "cpu" | "hailo"
+        model_path:
+          - 절대경로("/home/pi/.../yolov8_face.onnx")
+          - 또는 "models/yolov8_face.onnx" 같은 상대경로
+          - 또는 None이면 DEFAULT_MODEL_PATH 사용
         """
-        self.backend = backend
-        self.model_path = model_path
-        self.hailo_model_path = hailo_model_path
+        path = Path(model_path) if model_path is not None else DEFAULT_MODEL_PATH
+        if not path.is_absolute():
+            path = BASE_DIR / path
 
-        # TODO: 여기서 ONNXRuntime, HailoRT 등을 이용해 모델 로드
-        # 지금은 더미 모드
-        print(f"[Detector] init backend={backend}, model={model_path}, hailo={hailo_model_path}")
+        self.model_path = str(path)
+        self.conf_threshold = conf_threshold
 
-    def detect_faces(self, frame) -> list:
+        print(f"[Detector] Loading YOLO model via Ultralytics: {self.model_path}")
+
+        # Ultralytics YOLO: ONNX 파일도 바로 로딩 가능
+        self.model = YOLO(self.model_path)
+
+    def detect(self, frame):
         """
-        frame: BGR 이미지 (H x W x 3)
-        return: [ (x1, y1, x2, y2), ... ]
+        입력: BGR OpenCV 프레임 (numpy array)
+        출력: [(x1, y1, x2, y2, conf), ...] 리스트
         """
-        h, w = frame.shape[:2]
+        # Ultralytics가 알아서 전처리 + ONNXRuntime 추론 + 후처리까지 수행
+        results = self.model.predict(
+            source=frame,
+            imgsz=640,
+            conf=self.conf_threshold,
+            verbose=False,
+        )[0]
 
-        # TODO: 실제 YOLOv8 얼굴 검출 결과로 교체
-        # 지금은 중앙에 더미 박스 하나 생성
-        cx, cy = w // 2, h // 2
-        box_w, box_h = w // 4, h // 4
-        x1 = cx - box_w // 2
-        y1 = cy - box_h // 2
-        x2 = cx + box_w // 2
-        y2 = cy + box_h // 2
+        boxes = results.boxes
+        if boxes is None or len(boxes) == 0:
+            return []
 
-        return [(x1, y1, x2, y2)]
+        # boxes.xyxy: (N, 4), boxes.conf: (N,)
+        xyxy = boxes.xyxy.cpu().numpy()
+        confs = boxes.conf.cpu().numpy()
+
+        detections = []
+        for (x1, y1, x2, y2), c in zip(xyxy, confs):
+            detections.append((int(x1), int(y1), int(x2), int(y2), float(c)))
+
+        return detections
+
+    def detect_faces(self, frame, with_conf: bool = False):
+        """
+        기존 코드 호환용 래퍼.
+        - with_conf=False (기본): [(x1, y1, x2, y2), ...] 형태로 반환
+        - with_conf=True : [(x1, y1, x2, y2, conf), ...] 그대로 반환
+        """
+        results = self.detect(frame)
+
+        if with_conf:
+            return results
+
+        return [(x1, y1, x2, y2) for (x1, y1, x2, y2, _conf) in results]

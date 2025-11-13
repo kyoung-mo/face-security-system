@@ -23,11 +23,12 @@ def run_recognize_mode():
         device_index=cam_cfg.get("device_index", 0),
         width=cam_cfg.get("width", 640),
         height=cam_cfg.get("height", 480),
+	backend=cam_cfg.get("backend", "picamera2"),
     )
 
     detector = Detector(
-        backend="cpu",
         model_path=paths["models"]["yolov8_face_onnx"],
+	conf_threshold=config["detection"].get("conf_threshold", 0.4),
     )
 
     embedder = Embedder(

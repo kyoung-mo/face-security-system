@@ -20,6 +20,7 @@ def run_register_mode():
         device_index=cam_cfg.get("device_index", 0),
         width=cam_cfg.get("width", 640),
         height=cam_cfg.get("height", 480),
+	backend=cam_cfg.get("backend", "picamera2"),
     )
 
     detector = Detector(
