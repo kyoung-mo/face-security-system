@@ -1,0 +1,18 @@
+camera:
+  device_index: 0          # OpenCV VideoCapture index
+  width: 640
+  height: 480
+
+recognition:
+  embedding_dim: 128
+  distance_threshold: 0.5  # 이 값 이상이면 "다른 사람"으로 판단
+
+gpio:
+  enabled: false           # 개발 PC에서는 false, 라즈베리파이에서 true
+  green_led_pin: 17
+  red_led_pin: 27
+  buzzer_pin: 22
+
+logging:
+  access_log_path: "logs/access_log.csv"
+  debug_log_path: "logs/debug.log"
