@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# TODO: ONNX → Hailo .hef 변환 명령어 추가
+# 예시:
+# hailortcli compile --model models/yolov8_face.onnx --output models/yolov8_face_hailo.hef
+echo "Hailo 변환 스크립트를 이 파일에 정리하세요."
