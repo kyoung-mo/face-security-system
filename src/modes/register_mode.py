@@ -17,6 +17,10 @@ def run_register_mode():
     cam_cfg = config["camera"]
     # rec_cfg = config["recognition"]   # ⬅️ 이제 직접 쓰진 않지만, 필요하면 남겨둬도 됨
 
+    data_paths = paths.get("data", {})
+    reg_dir = Path(data_paths.get("registered_faces_dir", "data/registered_faces"))
+    reg_dir.mkdir(parents=True, exist_ok=True)
+    
     camera = Camera(
         device_index=cam_cfg.get("device_index", 0),
         width=cam_cfg.get("width", 640),
@@ -66,8 +70,12 @@ def run_register_mode():
             print("얼굴 crop 실패")
             continue
 
-        # 🔴 예전: face_norm = normalize_face(face_img)
-        # 🔵 지금: FaceEmbedder가 resize + 정규화까지 내부 처리
+        # 등록용 원본 얼굴 이미지도 로컬에 저장
+        save_path = reg_dir / f"{user_id}_{i+1}.jpg"
+        cv2.imwrite(str(save_path), face_img)
+        print(f"[INFO] 저장: {save_path}")
+        
+        # FaceEmbedder가 resize + 정규화까지 내부 처리
         emb = embedder.get_embedding(face_img)
         embeddings.append(emb)
 
