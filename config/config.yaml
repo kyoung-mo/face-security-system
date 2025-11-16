@@ -9,7 +9,7 @@ recognition:
   distance_threshold: 0.5  # 이 값 이상이면 "다른 사람"으로 판단
 
 gpio:
-  enabled: false           # 개발 PC에서는 false, 라즈베리파이에서 true
+  enabled: true           # 개발 PC에서는 false, 라즈베리파이에서 true
   green_led_pin: 17
   red_led_pin: 27
   buzzer_pin: 22
@@ -20,3 +20,14 @@ logging:
 
 detection:
   conf_threshold: 0.4
+
+models:
+  detection:
+    onnx_path: "models/yolov8_face.onnx"
+
+  embedding:
+    onnx_path: "models/facenet.onnx"
+
+  recognition:
+    embedding_dim: 512    # w600k_r50.onnx 출력 차원
+    threshold: 1.0        # L2 거리 기준, 나중에 0.9~1.2 사이로 튜닝

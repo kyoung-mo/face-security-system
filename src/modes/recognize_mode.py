@@ -2,46 +2,45 @@ import cv2
 
 from camera import Camera
 from detection import Detector
-from embedding import Embedder
-from recognition import Recognizer
+from embedding import FaceEmbedder          # ✅ 새 클래스
+from recognition import FaceRecognizer      # ✅ 새 클래스
 from gpio_control import GPIOController, GPIOConfig
 from lcd_display import LCDDisplay
-from utils.preprocess import crop_and_resize, normalize_face
+from utils.preprocess import crop_and_resize  # ✅ normalize_face는 제거
 from utils.config_loader import load_yaml
 from utils.logging_utils import append_access_log
+
 
 def run_recognize_mode():
     config = load_yaml("config/config.yaml")
     paths = load_yaml("config/paths.yaml")
 
     cam_cfg = config["camera"]
-    rec_cfg = config["recognition"]
     gpio_cfg = config["gpio"]
     log_cfg = config["logging"]
+    det_cfg = config["detection"]
 
+    # 🔹 카메라 설정 그대로 사용
     camera = Camera(
         device_index=cam_cfg.get("device_index", 0),
         width=cam_cfg.get("width", 640),
         height=cam_cfg.get("height", 480),
-	backend=cam_cfg.get("backend", "picamera2"),
+        backend=cam_cfg.get("backend", "picamera2"),
     )
 
+    # 🔹 얼굴 검출기: paths.yaml에 있는 yolov8_face_onnx 사용
     detector = Detector(
         model_path=paths["models"]["yolov8_face_onnx"],
-	conf_threshold=config["detection"].get("conf_threshold", 0.4),
+        conf_threshold=config["detection"].get("conf_threshold", 0.4),
     )
 
-    embedder = Embedder(
-        backend="cpu",
-        model_path=paths["models"]["facenet_onnx"],
-        embedding_dim=rec_cfg.get("embedding_dim", 128),
-    )
+    # 🔹 새 FaceEmbedder / FaceRecognizer
+    #     - 모델 경로, embedding_dim, threshold는 embedding.py / recognition.py 내부에서
+    #       config.yaml의 models.embedding, models.recognition을 읽어 사용
+    embedder = FaceEmbedder()
+    recognizer = FaceRecognizer()
 
-    recognizer = Recognizer(
-        embeddings_path=paths["data"]["embeddings"],
-        threshold=rec_cfg.get("distance_threshold", 0.5),
-    )
-
+    # 🔹 GPIO / LCD 는 기존 그대로
     gpio = GPIOController(GPIOConfig(
         enabled=gpio_cfg.get("enabled", False),
         green_led_pin=gpio_cfg.get("green_led_pin", 17),
@@ -66,34 +65,57 @@ def run_recognize_mode():
                 lcd.show_text("No face detected")
                 gpio.reset()
             else:
-                # 첫 번째 얼굴만 처리
-                bbox = bboxes[0]
-                face_img = crop_and_resize(frame, bbox)
+                # ✅ 첫 번째 얼굴만 처리 (기존과 동일)
+                bbox = bboxes[0]  # [x1, y1, x2, y2, ...] 형태라고 가정
+                face_img = crop_and_resize(frame, bbox)  # BGR 얼굴 ROI 리턴
                 if face_img is None:
+                    cv2.imshow("recognize", frame)
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        break
                     continue
 
-                face_norm = normalize_face(face_img)
-                emb = embedder.get_embedding(face_norm)
+                # 🔴 예전: face_norm = normalize_face(face_img)
+                # 🔵 지금: FaceEmbedder가 내부에서 resize + 정규화까지 수행함
+                emb = embedder.get_embedding(face_img)
+
                 user_id, distance = recognizer.recognize(emb)
 
                 if user_id is not None:
-                    msg = f"Access Granted: {user_id} (d={distance:.3f})"
-                    lcd.show_text(msg)
+                    line1 = "Access Granted"
+                    line2 = f"{user_id} (d={distance:.3f})"
+                    lcd.show_text(f"{line1}\n{line2}")
                     gpio.green_on()
                     gpio.red_off()
                     gpio.buzzer_off()
-                    append_access_log(log_cfg["access_log_path"], user_id, "granted", distance)
+                    append_access_log(
+                        log_cfg["access_log_path"],
+                        user_id,
+                        "granted",
+                        distance,
+                    )
                     color = (0, 255, 0)
                 else:
-                    msg = f"Access Denied (d={distance:.3f})" if distance is not None else "Access Denied"
-                    lcd.show_text(msg)
+                    line1 = "Access Denied"
+                    if distance is not None:
+                        # 등록 안 된 사람이라 user_id는 없으니 거리만
+                        line2 = f"(d={distance:.3f})"
+                    else:
+                        line2 = ""
+                    lcd.show_text(f"{line1}\n{line2}" if line2 else line1)
                     gpio.green_off()
                     gpio.red_on()
                     gpio.buzzer_on()
-                    append_access_log(log_cfg["access_log_path"], None, "denied", distance)
+                    append_access_log(
+                        log_cfg["access_log_path"],
+                        None,
+                        "denied",
+                        distance,
+                    )
                     color = (0, 0, 255)
 
-                cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 2)
+                # 얼굴 박스 그림 (bbox 형태에 따라 인덱스 조정 필요)
+                x1, y1, x2, y2 = bbox[:4]
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
 
             cv2.imshow("recognize", frame)
             key = cv2.waitKey(1) & 0xFF
@@ -104,4 +126,15 @@ def run_recognize_mode():
         camera.release()
         gpio.reset()
         gpio.cleanup()
+        cv2.destroyAllWindows()
+
+        # 🔹 종료 시 LCD 초기화 (또는 중립 메시지)
+        try:
+            lcd.show_text("System Stopped")
+            # 필요하면 잠깐 보여주고 지우고 싶으면:
+            # import time; time.sleep(1)
+            lcd.clear()
+        except Exception as e:
+            print(f"[LCD] cleanup error: {e}")
+
         cv2.destroyAllWindows()

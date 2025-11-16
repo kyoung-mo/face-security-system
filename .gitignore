@@ -1,0 +1,17 @@
+# === Too large model files (GitHub 100MB 제한 초과) ===
+models/buffalo_l.zip
+models/buffalo_l/
+models/facenet.onnx
+
+# === Face embeddings & local data (개인 얼굴 정보) ===
+data/
+
+# === Python cache ===
+__pycache__/
+*.pyc
+
+# === Local logs (실행 중 생성) ===
+logs/
+src/logs/
+*.log
+*.csv

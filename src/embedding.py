@@ -1,24 +1,69 @@
+import os
+import yaml
 import numpy as np
+import onnxruntime as ort
+import cv2
 
-class Embedder:
-    def __init__(self, backend: str = "cpu", model_path: str | None = None, hailo_model_path: str | None = None, embedding_dim: int = 128):
-        self.backend = backend
-        self.model_path = model_path
-        self.hailo_model_path = hailo_model_path
-        self.embedding_dim = embedding_dim
+# config 경로 설정
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "config.yaml")
+with open(CONFIG_PATH, "r") as f:
+    config = yaml.safe_load(f)
 
-        # TODO: ONNXRuntime 또는 HailoRT 기반 FaceNet 로드
-        print(f"[Embedder] init backend={backend}, model={model_path}, hailo={hailo_model_path}, dim={embedding_dim}")
+EMBEDDING_MODEL_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    config["models"]["embedding"]["onnx_path"],
+)
 
-    def get_embedding(self, face_img) -> np.ndarray:
+class FaceEmbedder:
+    def __init__(self):
+        # ONNXRuntime 세션 로드
+        self.session = ort.InferenceSession(
+            EMBEDDING_MODEL_PATH,
+            providers=["CPUExecutionProvider"],
+        )
+        self.input_name = self.session.get_inputs()[0].name
+        self.output_name = self.session.get_outputs()[0].name
+
+        # w600k_r50: 입력 112x112
+        self.input_size = (112, 112)
+
+    def preprocess(self, face_bgr: np.ndarray) -> np.ndarray:
         """
-        face_img: 전처리된 얼굴 이미지 (H x W x 3, float32)
-        return: (embedding_dim,) 벡터
+        BGR 얼굴 이미지(ROI)를 받아서 모델 입력 텐서(NCHW, float32)로 변환
         """
-        # TODO: 실제 FaceNet 추론 코드로 교체
-        # 지금은 더미로 고정된 pseudo embedding 반환 (이미지 기반 간단 feature)
-        flat = face_img.mean(axis=(0, 1))  # (3,)
-        rng = np.random.default_rng(int(flat.sum() * 1e6) % (2**32 - 1))
-        emb = rng.normal(size=(self.embedding_dim,))
-        emb = emb / (np.linalg.norm(emb) + 1e-8)
-        return emb.astype("float32")
+        # 1) 크기 맞추기
+        img = cv2.resize(face_bgr, self.input_size)
+
+        # 2) BGR -> RGB
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        # 3) [0, 1]로 스케일링
+        img = img.astype(np.float32) / 255.0
+
+        # 4) [-1, 1] 정규화 (ArcFace 계열에서 일반적으로 사용)
+        img = (img - 0.5) / 0.5
+
+        # 5) HWC -> CHW
+        img = np.transpose(img, (2, 0, 1))
+
+        # 6) 배치 차원 추가: (1, C, H, W)
+        img = np.expand_dims(img, axis=0)
+        return img
+
+    def get_embedding(self, face_bgr: np.ndarray) -> np.ndarray:
+        """
+        얼굴 이미지를 받아 L2-normalized 임베딩 벡터(512차원)를 반환
+        """
+        input_tensor = self.preprocess(face_bgr)
+        emb = self.session.run(
+            [self.output_name],
+            {self.input_name: input_tensor},
+        )[0]  # shape: (1, 512)
+        emb = emb[0]  # (512,)
+
+        # L2 정규화
+        norm = np.linalg.norm(emb)
+        if norm > 0:
+            emb = emb / norm
+        return emb
