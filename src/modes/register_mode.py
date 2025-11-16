@@ -4,10 +4,11 @@ import numpy as np
 
 from camera import Camera
 from detection import Detector
-from embedding import FaceEmbedder        # ⬅️ 변경
-from recognition import FaceRecognizer    # ⬅️ 변경
-from utils.preprocess import crop_and_resize  # ⬅️ normalize_face 제거
+from embedding import FaceEmbedder
+from recognition import FaceRecognizer
+from utils.preprocess import crop_and_resize
 from utils.config_loader import load_yaml
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def run_register_mode():
@@ -15,9 +16,10 @@ def run_register_mode():
     paths = load_yaml("config/paths.yaml")
 
     cam_cfg = config["camera"]
-    # rec_cfg = config["recognition"]   # ⬅️ 이제 직접 쓰진 않지만, 필요하면 남겨둬도 됨
+    # rec_cfg = config["recognition"]   # 이제 직접 쓰진 않지만, 필요하면 남겨둬도 됨
 
     data_paths = paths.get("data", {})
+    reg_rel = data_paths.get("registered_faces_dir", "data/registered_faces")
     reg_dir = Path(data_paths.get("registered_faces_dir", "data/registered_faces"))
     reg_dir.mkdir(parents=True, exist_ok=True)
     
@@ -33,7 +35,7 @@ def run_register_mode():
         conf_threshold=config["detection"].get("conf_threshold", 0.4),
     )
 
-    # 🔹 새 임베더 / 리코그나이저
+    # 새 임베더 / 리코그나이저
     #  - 모델 경로, embedding_dim, threshold 등은
     #    embedding.py / recognition.py 내부에서 config.yaml을 통해 처리
     embedder = FaceEmbedder()
@@ -95,6 +97,7 @@ def run_register_mode():
     mean_emb = np.mean(embeddings, axis=0)
     mean_emb = mean_emb / (np.linalg.norm(mean_emb) + 1e-8)
 
-    # 🔹 새 FaceRecognizer의 저장 메서드 사용
+    # 새 FaceRecognizer의 저장 메서드 사용
     recognizer.save_embedding(user_id, mean_emb)
     print(f"{user_id} 등록 완료. ({len(embeddings)} 샘플 사용)")
+    print(f"등록된 얼굴 이미지 경로: {reg_dir}")
