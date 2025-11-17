@@ -1,6 +1,9 @@
 import argparse
 from modes.register_mode import run_register_mode
 from modes.recognize_mode import run_recognize_mode
+from utils.logging_utils import setup_logging
+
+setup_logging()
 
 def main():
     parser = argparse.ArgumentParser(description="Face Security System")

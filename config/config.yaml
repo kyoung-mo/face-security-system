@@ -31,3 +31,6 @@ models:
   recognition:
     embedding_dim: 512    # w600k_r50.onnx 출력 차원
     threshold: 1.0        # L2 거리 기준, 나중에 0.9~1.2 사이로 튜닝
+
+runtime:
+  backend: "cpu" # "cpu" or "hailo"

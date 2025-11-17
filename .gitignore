@@ -4,7 +4,7 @@ models/buffalo_l/
 models/facenet.onnx
 
 # === Face embeddings & local data (개인 얼굴 정보) ===
-data/
+data/*
 
 # === Python cache ===
 __pycache__/

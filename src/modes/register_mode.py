@@ -10,6 +10,9 @@ from utils.preprocess import crop_and_resize
 from utils.config_loader import load_yaml
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+# 프로젝트 루트 (face-security-system/) 경로 계산
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 
 def run_register_mode():
     config = load_yaml("config/config.yaml")
@@ -18,11 +21,18 @@ def run_register_mode():
     cam_cfg = config["camera"]
     # rec_cfg = config["recognition"]   # 이제 직접 쓰진 않지만, 필요하면 남겨둬도 됨
 
+    # ─────────────────────────────────────────────
+    # data/registered_faces 절대 경로 설정
+    # ─────────────────────────────────────────────
     data_paths = paths.get("data", {})
     reg_rel = data_paths.get("registered_faces_dir", "data/registered_faces")
-    reg_dir = Path(data_paths.get("registered_faces_dir", "data/registered_faces"))
-    reg_dir.mkdir(parents=True, exist_ok=True)
-    
+    reg_base_dir = PROJECT_ROOT / reg_rel          # data/registered_faces
+    reg_base_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"[DEBUG] PROJECT_ROOT = {PROJECT_ROOT}")
+    print(f"[DEBUG] BASE REGISTER DIR = {reg_base_dir}")
+
+    # 카메라, 디텍터, 임베더, 리코그나이저
     camera = Camera(
         device_index=cam_cfg.get("device_index", 0),
         width=cam_cfg.get("width", 640),
@@ -41,10 +51,17 @@ def run_register_mode():
     embedder = FaceEmbedder()
     recognizer = FaceRecognizer()
 
+    # ─────────────────────────────────────────────
+    # 사용자 입력 → 개인 폴더 생성
+    # ─────────────────────────────────────────────
     user_id = input("등록할 사용자 ID를 입력하세요: ").strip()
     if not user_id:
         print("유효하지 않은 ID입니다.")
         return
+
+    # 개인 폴더 생성: data/registered_faces/<user_id>/
+    user_dir = reg_base_dir / user_id
+    user_dir.mkdir(parents=True, exist_ok=True)
 
     num_samples = 5
     embeddings = []
@@ -52,6 +69,9 @@ def run_register_mode():
     print(f"{user_id} 등록을 위해 얼굴을 카메라에 맞추고 엔터를 누르세요.")
     input()
 
+    # ─────────────────────────────────────────────
+    # 얼굴 캡처 반복 (5장)
+    # ─────────────────────────────────────────────
     for i in range(num_samples):
         frame = camera.get_frame()
         if frame is None:
@@ -65,22 +85,24 @@ def run_register_mode():
             cv2.waitKey(500)
             continue
 
-        # 첫 번째 얼굴만 사용
         bbox = bboxes[0]
         face_img = crop_and_resize(frame, bbox)
         if face_img is None:
             print("얼굴 crop 실패")
             continue
 
-        # 등록용 원본 얼굴 이미지도 로컬에 저장
-        save_path = reg_dir / f"{user_id}_{i+1}.jpg"
+        # ─────────────────────────────────────────
+        # 사용자 폴더 안에 저장: data/.../<user_id>/1.jpg
+        # ─────────────────────────────────────────
+        save_path = user_dir / f"{i+1}.jpg"
         cv2.imwrite(str(save_path), face_img)
         print(f"[INFO] 저장: {save_path}")
-        
-        # FaceEmbedder가 resize + 정규화까지 내부 처리
+
+        # 임베딩 추출
         emb = embedder.get_embedding(face_img)
         embeddings.append(emb)
 
+        # 박스 표시
         x1, y1, x2, y2 = bbox[:4]
         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
         cv2.imshow("register", frame)
@@ -89,15 +111,16 @@ def run_register_mode():
     camera.release()
     cv2.destroyAllWindows()
 
+    # ─────────────────────────────────────────────
+    # 임베딩 평균 → embeddings.json에 저장
+    # ─────────────────────────────────────────────
     if not embeddings:
         print("등록에 실패했습니다. 유효한 임베딩이 없습니다.")
         return
 
-    # 샘플들의 평균 임베딩 + L2 정규화
     mean_emb = np.mean(embeddings, axis=0)
     mean_emb = mean_emb / (np.linalg.norm(mean_emb) + 1e-8)
 
-    # 새 FaceRecognizer의 저장 메서드 사용
     recognizer.save_embedding(user_id, mean_emb)
     print(f"{user_id} 등록 완료. ({len(embeddings)} 샘플 사용)")
-    print(f"등록된 얼굴 이미지 경로: {reg_dir}")
+    print(f"저장된 이미지 경로: {user_dir}")
