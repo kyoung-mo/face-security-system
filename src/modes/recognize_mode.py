@@ -11,7 +11,7 @@ from utils.config_loader import load_yaml
 from utils.logging_utils import append_access_log
 
 
-def run_recognize_mode():
+def run_recognize_mode(detector_backend="cpu"):
     config = load_yaml("config/config.yaml")
     paths = load_yaml("config/paths.yaml")
 
@@ -19,26 +19,36 @@ def run_recognize_mode():
     gpio_cfg = config["gpio"]
     log_cfg = config["logging"]
     det_cfg = config["detection"]
+    
+    print(f"[RecognizeMode] Detector backend = {detector_backend}")
 
-    # 🔹 카메라 설정 그대로 사용
+    # 🔹 카메라 설정 그대로 사용 + Detector backend 추가
     camera = Camera(
         device_index=cam_cfg.get("device_index", 0),
         width=cam_cfg.get("width", 640),
         height=cam_cfg.get("height", 480),
         backend=cam_cfg.get("backend", "picamera2"),
+        detector_backend = detector_backend    # 추가
     )
 
-    # 🔹 얼굴 검출기: paths.yaml에 있는 yolov8_face_onnx 사용
+    # 🔹 얼굴 검출기: backend에 따라 onnx / hef 선택
+    if detector_backend == "hailo":
+        # detection.py 안에서 DEFAULT_HAILO_MODEL_PATH(hef) 사용
+        det_model_path = None
+    else:
+        # CPU일 때는 ONNX 경로 사용
+        det_model_path = paths["models"]["yolov8_face_onnx"]
+
     detector = Detector(
-        model_path=paths["models"]["yolov8_face_onnx"],
+        model_path=det_model_path,
         conf_threshold=config["detection"].get("conf_threshold", 0.4),
+        backend=detector_backend,
     )
 
     # 🔹 새 FaceEmbedder / FaceRecognizer
-    #     - 모델 경로, embedding_dim, threshold는 embedding.py / recognition.py 내부에서
-    #       config.yaml의 models.embedding, models.recognition을 읽어 사용
-    embedder = FaceEmbedder()
-    recognizer = FaceRecognizer()
+    #     - FaceEmbedder는 항상 CPU 사용 (Hailo 분기 아직 미구현)
+    embedder = FaceEmbedder(backend="cpu")
+    recognizer = FaceRecognizer(backend=detector_backend)
 
     # 🔹 GPIO / LCD 는 기존 그대로
     gpio = GPIOController(GPIOConfig(

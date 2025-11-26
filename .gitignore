@@ -1,4 +1,5 @@
-# === Too large model files (GitHub 100MB 제한 초과) ===
++
+-++-++# === Too large model files (GitHub 100MB 제한 초과) ===
 models/buffalo_l.zip
 models/buffalo_l/
 models/facenet.onnx
@@ -15,3 +16,9 @@ logs/
 src/logs/
 *.log
 *.csv
+
+# Hailo 변환 산출물 (용량 매우 큼)
+models/facenet_parsed.har
+models/facenet_quantized.har
+models/yolov8_face_quantized.har
+models/yolov8_face_parsed_dump/

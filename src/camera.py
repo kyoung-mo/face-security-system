@@ -19,13 +19,16 @@ class Camera:
         width: int = 640,
         height: int = 480,
         backend: str = "picamera2",  # "picamera2" 또는 "opencv"
+        detector_backend="cpu",
     ):
         self.width = width
         self.height = height
         self.backend = backend
+        self.detector_backend = detector_backend
         self.use_picamera2 = False
         self.cap = None
         self.picam2 = None
+        
 
         # Picamera2 우선 사용
         if backend == "picamera2" and PICAMERA2_AVAILABLE:

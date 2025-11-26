@@ -1,8 +1,8 @@
 models:
   yolov8_face_onnx: "models/yolov8_face.onnx"
-  yolov8_face_hailo: "models/yolov8_face_hailo.hef"
+  yolov8_face_hailo_hef: "models/yolov8_face_hailo.hef"
   facenet_onnx: "models/facenet.onnx"
-  facenet_hailo: "models/facenet_hailo.hef"
+  facenet_hailo_hef: "models/facenet_hailo.hef"
 
 data:
   embeddings: "data/embeddings.json"
