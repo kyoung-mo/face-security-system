@@ -10,23 +10,18 @@ import re
 
 import numpy as np
 
-# psutil은 있으면 사용, 없으면 CPU 사용률은 -1로 기록
 try:
     import psutil
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
 
-# ─────────────────────────────────────────────
-# 1. 프로젝트 루트 / src 경로 설정
-# ─────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
 
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-# src 모듈 import
 from camera import Camera
 from detection import Detector
 from embedding import FaceEmbedder
@@ -36,11 +31,6 @@ from utils.config_loader import load_yaml
 
 
 def read_cpu_temperature() -> float | None:
-    """
-    라즈베리파이 CPU 온도(섭씨)를 읽어서 반환.
-    읽기 실패 시 None 반환.
-    """
-    # 1) /sys/class/thermal 경로 시도
     candidates = [
         Path("/sys/class/thermal/thermal_zone0/temp"),
         Path("/sys/class/thermal/thermal_zone1/temp"),
@@ -50,12 +40,9 @@ def read_cpu_temperature() -> float | None:
             try:
                 v = p.read_text().strip()
                 mv = float(v)
-                # 보통 millidegree 단위로 들어오니 1000으로 나눔
                 return mv / 1000.0 if mv > 200 else mv
             except Exception:
                 continue
-
-    # 2) vcgencmd measure_temp 시도
     try:
         out = subprocess.check_output(
             ["vcgencmd", "measure_temp"],
@@ -67,32 +54,19 @@ def read_cpu_temperature() -> float | None:
             return float(m.group(1))
     except Exception:
         pass
-
     return None
 
 
 def benchmark_pipeline(num_frames: int = 100, backend: str = "cpu", show_progress: bool = True):
-    """
-    카메라 → 얼굴 검출 → 얼굴 crop → 임베딩 → 인식
-    전체 파이프라인의 FPS와 단계별 평균 시간을 측정한다.
 
-    같은 스크립트를 CPU / Hailo 환경에서 실행하여
-    성능을 비교할 수 있도록 설계.
-    """
-
-    # ─────────────────────────────────────────
-    # 설정 로드
-    # ─────────────────────────────────────────
     config = load_yaml("config/config.yaml")
     paths = load_yaml("config/paths.yaml")
 
     cam_cfg = config["camera"]
     det_cfg = config["detection"]
-
     cam_width = cam_cfg.get("width", 640)
     cam_height = cam_cfg.get("height", 480)
 
-    # 카메라, 디텍터, 임베더, 리코그나이저 준비
     camera = Camera(
         device_index=cam_cfg.get("device_index", 0),
         width=cam_width,
@@ -100,36 +74,38 @@ def benchmark_pipeline(num_frames: int = 100, backend: str = "cpu", show_progres
         backend=cam_cfg.get("backend", "picamera2"),
     )
 
+    if backend == "hailo":
+        det_model_path = None
+    else:
+        det_model_path = paths["models"]["yolov8_face_onnx"]
+
     detector = Detector(
-        model_path=paths["models"]["yolov8_face_onnx"],
+        model_path=det_model_path,
         conf_threshold=det_cfg.get("conf_threshold", 0.4),
         backend=backend,
     )
 
-    embedder = FaceEmbedder(backend=backend)
-    recognizer = FaceRecognizer()
+    embedder  = FaceEmbedder(backend="cpu")   # 임베딩은 항상 cpu (hailo 미구현 시)
+    recognizer = FaceRecognizer(backend=backend)
 
-    # ─────────────────────────────────────────
-    # 벤치마크용 누적 변수
-    # ─────────────────────────────────────────
-    t_capture_list = []
-    t_detect_list = []
-    t_embed_recog_list = []
-
-    cpu_usage_list = []   # 시스템 전체 CPU 사용률 (%)
-    cpu_temp_list = []    # CPU 온도 (°C)
+    # ── 누적 변수 ──────────────────────────────────
+    t_capture_list    = []
+    t_detect_list     = []
+    t_embed_list      = []   # ★ 임베딩만
+    t_recog_list      = []   # ★ 인식(거리계산)만
+    cpu_usage_list    = []
+    cpu_temp_list     = []
+    mem_usage_list    = []   # ★ 메모리(MB)
+    distances         = []   # ★ 인식 거리 분포
 
     if PSUTIL_AVAILABLE:
-        # 첫 호출은 기준값 맞추기용 (버려도 됨)
         psutil.cpu_percent(interval=None)
+        proc = psutil.Process()
 
     total_start = time.perf_counter()
-    processed_frames = 0
+    processed_frames  = 0
     face_found_frames = 0
 
-    # ─────────────────────────────────────────
-    # 프레임 루프
-    # ─────────────────────────────────────────
     for i in range(num_frames):
         # 1) 캡처
         t0 = time.perf_counter()
@@ -138,13 +114,13 @@ def benchmark_pipeline(num_frames: int = 100, backend: str = "cpu", show_progres
 
         if frame is None:
             if show_progress:
-                print(f"[{i+1}/{num_frames}] frame is None (capture failed).")
+                print(f"[{i+1}/{num_frames}] frame is None.")
             continue
 
         t_capture_list.append(t1 - t0)
         processed_frames += 1
 
-        # 2) 얼굴 검출
+        # 2) 얼굴 감지
         t2 = time.perf_counter()
         bboxes = detector.detect_faces(frame)
         t3 = time.perf_counter()
@@ -155,137 +131,151 @@ def benchmark_pipeline(num_frames: int = 100, backend: str = "cpu", show_progres
                 print(f"[{i+1}/{num_frames}] No face detected.")
         else:
             face_found_frames += 1
-
-            bbox = bboxes[0]
+            bbox     = bboxes[0]
             face_img = crop_and_resize(frame, bbox)
-            if face_img is None:
-                if show_progress:
-                    print(f"[{i+1}/{num_frames}] Face crop failed.")
-            else:
-                # 3) 임베딩 + 인식 (한 덩어리로 측정)
+
+            if face_img is not None:
+                # 3) 임베딩만 측정 ★
                 t4 = time.perf_counter()
                 emb = embedder.get_embedding(face_img)
-                user_id, distance = recognizer.recognize(emb)
                 t5 = time.perf_counter()
-                t_embed_recog_list.append(t5 - t4)
+                t_embed_list.append(t5 - t4)
+
+                # 4) 인식(거리계산)만 측정 ★
+                t6 = time.perf_counter()
+                user_id, distance = recognizer.recognize(emb)
+                t7 = time.perf_counter()
+                t_recog_list.append(t7 - t6)
+
+                if distance is not None:
+                    distances.append(distance)
 
                 if show_progress:
                     print(
                         f"[{i+1}/{num_frames}] "
-                        f"face_found={user_id is not None}, user_id={user_id}, distance={distance}"
+                        f"detect={t3-t2:.3f}s  embed={t5-t4:.3f}s  recog={t7-t6:.3f}s  "
+                        f"user={user_id}  dist={distance:.4f}"
                     )
 
-        # ─────────────────────────────────────
-        # CPU 사용률 / 온도 샘플링
-        # ─────────────────────────────────────
+        # 시스템 자원 샘플링
         if PSUTIL_AVAILABLE:
-            cpu_usage = psutil.cpu_percent(interval=None)
-            cpu_usage_list.append(cpu_usage)
+            cpu_usage_list.append(psutil.cpu_percent(interval=None))
+            mem_usage_list.append(proc.memory_info().rss / 1024 / 1024)  # MB
 
         temp = read_cpu_temperature()
         if temp is not None:
             cpu_temp_list.append(temp)
 
-    total_end = time.perf_counter()
+    total_end     = time.perf_counter()
     total_elapsed = total_end - total_start
-
     camera.release()
 
-    # ─────────────────────────────────────────
-    # 결과 집계
-    # ─────────────────────────────────────────
+    # ── 통계 함수 ──────────────────────────────────
+    def stats(lst):
+        if not lst:
+            return 0.0, 0.0, 0.0, 0.0, 0.0
+        a = np.array(lst)
+        return (
+            float(np.mean(a)),
+            float(np.min(a)),
+            float(np.max(a)),
+            float(np.std(a)),
+            float(np.percentile(a, 95)),   # P95
+        )
+
     def avg(lst):
         return float(np.mean(lst)) if lst else 0.0
 
-    avg_capture = avg(t_capture_list)
-    avg_detect = avg(t_detect_list)
-    avg_embed_recog = avg(t_embed_recog_list)
+    fps_overall      = processed_frames / total_elapsed if total_elapsed > 0 else 0.0
+    face_found_ratio = face_found_frames / processed_frames if processed_frames > 0 else 0.0
 
-    fps_overall = processed_frames / total_elapsed if total_elapsed > 0 else 0.0
-    face_found_ratio = (
-        face_found_frames / processed_frames if processed_frames > 0 else 0.0
-    )
+    det_mean, det_min, det_max, det_std, det_p95       = stats(t_detect_list)
+    emb_mean, emb_min, emb_max, emb_std, emb_p95       = stats(t_embed_list)
+    rec_mean, rec_min, rec_max, rec_std, rec_p95       = stats(t_recog_list)
+    dist_mean, dist_min, dist_max, dist_std, dist_p95  = stats(distances)
 
-    avg_cpu_usage = avg(cpu_usage_list) if cpu_usage_list else -1.0
-    avg_cpu_temp = avg(cpu_temp_list) if cpu_temp_list else -1.0
-    max_cpu_temp = max(cpu_temp_list) if cpu_temp_list else -1.0
+    avg_cpu   = avg(cpu_usage_list) if cpu_usage_list else -1.0
+    avg_temp  = avg(cpu_temp_list)  if cpu_temp_list  else -1.0
+    max_temp  = max(cpu_temp_list)  if cpu_temp_list  else -1.0
+    avg_mem   = avg(mem_usage_list) if mem_usage_list else -1.0
+    max_mem   = max(mem_usage_list) if mem_usage_list else -1.0
 
+    # ── 출력 ───────────────────────────────────────
     print("\n========== BENCHMARK RESULT ==========")
-    print(f"backend 모드            : {backend}")
+    print(f"backend                : {backend}")
     print(f"전체 수행 시간         : {total_elapsed:.3f} 초")
-    print(f"요청 프레임 수         : {num_frames}")
-    print(f"처리된 프레임 수       : {processed_frames}")
-    print(f"얼굴이 검출된 프레임 수: {face_found_frames} "
-          f"({face_found_ratio*100:.1f} %)")
-    print(f"전체 파이프라인 FPS    : {fps_overall:.2f} FPS\n")
+    print(f"요청/처리 프레임       : {num_frames} / {processed_frames}")
+    print(f"얼굴 검출 프레임       : {face_found_frames} ({face_found_ratio*100:.1f}%)")
+    print(f"전체 FPS               : {fps_overall:.2f} FPS")
 
-    print("단계별 평균 시간 (1 프레임 기준):")
-    print(f"  - 캡처               : {avg_capture*1000:.2f} ms")
-    print(f"  - 얼굴 검출          : {avg_detect*1000:.2f} ms")
-    print(f"  - 임베딩+인식 단계   : {avg_embed_recog*1000:.2f} ms "
-          f"(얼굴 검출된 프레임 기준)\n")
+    print("\n─── 단계별 추론 시간 (ms) ───────────────")
+    print(f"{'항목':<14} {'평균':>8} {'최소':>8} {'최대':>8} {'표준편차':>10} {'P95':>8}")
+    print(f"{'얼굴 감지':<14} {det_mean*1000:>8.2f} {det_min*1000:>8.2f} {det_max*1000:>8.2f} {det_std*1000:>10.2f} {det_p95*1000:>8.2f}")
+    print(f"{'임베딩':<14} {emb_mean*1000:>8.2f} {emb_min*1000:>8.2f} {emb_max*1000:>8.2f} {emb_std*1000:>10.2f} {emb_p95*1000:>8.2f}")
+    print(f"{'인식(거리)':<14} {rec_mean*1000:>8.2f} {rec_min*1000:>8.2f} {rec_max*1000:>8.2f} {rec_std*1000:>10.2f} {rec_p95*1000:>8.2f}")
 
-    print("시스템 자원 (실행 중 샘플 평균):")
-    if avg_cpu_usage >= 0:
-        print(f"  - 평균 CPU 사용률    : {avg_cpu_usage:.1f} %")
-    else:
-        print("  - 평균 CPU 사용률    : (psutil 미설치로 측정 불가)")
-    if avg_cpu_temp >= 0:
-        print(f"  - 평균 CPU 온도      : {avg_cpu_temp:.1f} °C")
-        print(f"  - 최대 CPU 온도      : {max_cpu_temp:.1f} °C")
-    else:
-        print("  - CPU 온도           : (측정 불가)")
+    print("\n─── 인식 거리 분포 ──────────────────────")
+    print(f"  평균: {dist_mean:.4f}  최소: {dist_min:.4f}  최대: {dist_max:.4f}  표준편차: {dist_std:.4f}  P95: {dist_p95:.4f}")
+    print(f"  (threshold={load_yaml('config/config.yaml')['models']['recognition']['threshold']})")
 
-    print("\n주의: 임베딩+인식 시간은 얼굴이 검출된 프레임들에 대해서만 평균 냄.")
-    print("      나중에 Hailo 환경에서 같은 스크립트 실행해서 수치 비교하면 됨.")
+    print("\n─── 시스템 자원 ─────────────────────────")
+    if avg_cpu >= 0:
+        print(f"  평균 CPU 사용률    : {avg_cpu:.1f}%")
+    if avg_temp >= 0:
+        print(f"  평균/최대 CPU 온도 : {avg_temp:.1f}°C / {max_temp:.1f}°C")
+    if avg_mem >= 0:
+        print(f"  평균/최대 메모리   : {avg_mem:.1f}MB / {max_mem:.1f}MB")
     print("=======================================\n")
 
-    # ─────────────────────────────────────────
-    # CSV로 결과 저장
-    # ─────────────────────────────────────────
+    # ── CSV 저장 ───────────────────────────────────
     logs_dir = PROJECT_ROOT / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
-
     csv_path = logs_dir / f"benchmark_{backend}.csv"
 
     row = {
-        "timestamp": datetime.now().isoformat(timespec="seconds"),
-        "backend": backend,
-        "num_frames_requested": num_frames,
-        "processed_frames": processed_frames,
-        "face_found_frames": face_found_frames,
-        "face_found_ratio": face_found_ratio,
-        "total_elapsed_sec": total_elapsed,
-        "overall_fps": fps_overall,
-        "avg_capture_ms": avg_capture * 1000.0,
-        "avg_detect_ms": avg_detect * 1000.0,
-        "avg_embed_recog_ms": avg_embed_recog * 1000.0,
-        "camera_width": cam_width,
-        "camera_height": cam_height,
-        "avg_cpu_usage_percent": avg_cpu_usage,
-        "avg_cpu_temp_c": avg_cpu_temp,
-        "max_cpu_temp_c": max_cpu_temp,
+        "timestamp"              : datetime.now().isoformat(timespec="seconds"),
+        "backend"                : backend,
+        "num_frames_requested"   : num_frames,
+        "processed_frames"       : processed_frames,
+        "face_found_frames"      : face_found_frames,
+        "face_found_ratio"       : face_found_ratio,
+        "total_elapsed_sec"      : total_elapsed,
+        "overall_fps"            : fps_overall,
+        # 얼굴 감지
+        "detect_mean_ms"         : det_mean * 1000,
+        "detect_min_ms"          : det_min  * 1000,
+        "detect_max_ms"          : det_max  * 1000,
+        "detect_std_ms"          : det_std  * 1000,
+        "detect_p95_ms"          : det_p95  * 1000,
+        # 임베딩
+        "embed_mean_ms"          : emb_mean * 1000,
+        "embed_min_ms"           : emb_min  * 1000,
+        "embed_max_ms"           : emb_max  * 1000,
+        "embed_std_ms"           : emb_std  * 1000,
+        "embed_p95_ms"           : emb_p95  * 1000,
+        # 인식
+        "recog_mean_ms"          : rec_mean * 1000,
+        "recog_min_ms"           : rec_min  * 1000,
+        "recog_max_ms"           : rec_max  * 1000,
+        "recog_std_ms"           : rec_std  * 1000,
+        "recog_p95_ms"           : rec_p95  * 1000,
+        # 인식 거리
+        "dist_mean"              : dist_mean,
+        "dist_min"               : dist_min,
+        "dist_max"               : dist_max,
+        "dist_std"               : dist_std,
+        "dist_p95"               : dist_p95,
+        # 시스템
+        "avg_cpu_usage_percent"  : avg_cpu,
+        "avg_cpu_temp_c"         : avg_temp,
+        "max_cpu_temp_c"         : max_temp,
+        "avg_mem_mb"             : avg_mem,
+        "max_mem_mb"             : max_mem,
+        "camera_width"           : cam_width,
+        "camera_height"          : cam_height,
     }
 
-    fieldnames = [
-        "timestamp",
-        "backend",
-        "num_frames_requested",
-        "processed_frames",
-        "face_found_frames",
-        "face_found_ratio",
-        "total_elapsed_sec",
-        "overall_fps",
-        "avg_capture_ms",
-        "avg_detect_ms",
-        "avg_embed_recog_ms",
-        "camera_width",
-        "camera_height",
-        "avg_cpu_usage_percent",
-        "avg_cpu_temp_c",
-        "max_cpu_temp_c",
-    ]
-
+    fieldnames = list(row.keys())
     file_exists = csv_path.exists()
     with csv_path.open("a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -293,31 +283,17 @@ def benchmark_pipeline(num_frames: int = 100, backend: str = "cpu", show_progres
             writer.writeheader()
         writer.writerow(row)
 
-    print(f"[INFO] 벤치마크 결과를 '{csv_path}' 에 저장했습니다.")
+    print(f"[INFO] 결과 저장: {csv_path}")
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Face-security-system 성능 벤치마크"
-    )
-    parser.add_argument(
-        "--mode",
-        type=str,
-        default="cpu",
-        choices=["cpu", "hailo"],
-        help="backend 선택 (cpu | hailo)",
-    )
-    parser.add_argument(
-        "--frames",
-        type=int,
-        default=100,
-        help="벤치마크 프레임 수",
-    )
+    parser = argparse.ArgumentParser(description="Face-security-system 성능 벤치마크")
+    parser.add_argument("--mode",   type=str, default="cpu", choices=["cpu", "hailo"])
+    parser.add_argument("--frames", type=int, default=100)
     args = parser.parse_args()
 
-    print(f"[INFO] backend mode : {args.mode}")
-    print(f"[INFO] frames       : {args.frames}")
-
+    print(f"[INFO] backend : {args.mode}")
+    print(f"[INFO] frames  : {args.frames}")
     benchmark_pipeline(num_frames=args.frames, backend=args.mode)
 
 
