@@ -22,3 +22,29 @@ models/facenet_parsed.har
 models/facenet_quantized.har
 models/yolov8_face_quantized.har
 models/yolov8_face_parsed_dump/
+
+# === ONNX 모델 파일 (용량 큼) ===
+models/*.onnx
+models/*.pt
+models/*.hef
+models/*.har
+
+# === 가상환경 ===
+hailo/
+
+# === 기타 ===
+yolov8n.pt
+check_env.py
+
+# === ONNX 모델 파일 (용량 큼) ===
+models/*.onnx
+models/*.pt
+models/*.hef
+models/*.har
+
+# === 가상환경 ===
+hailo/
+
+# === 기타 ===
+yolov8n.pt
+check_env.py

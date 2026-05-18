@@ -40,7 +40,7 @@ class FaceEmbedder:
             self.output_name = self.session.get_outputs()[0].name
 
             # w600k_r50: 입력 112x112
-            self.input_size = (112, 112)
+            self.input_size = (160, 160)
 
             print(f"[FaceEmbedder] (CPU) ONNX model loaded: {model_path}")
 
@@ -48,7 +48,7 @@ class FaceEmbedder:
             # TODO: 여기 Hailo 초기화 코드 넣기 (예: HailoRuntime, hef 로딩 등)
             hef_path = base_dir / cfg_embed["hailo_hef"]
             hef_path = str(hef_path)
-            self.input_size = (112, 112)
+            self.input_size = (160, 160)
             print(f"[FaceEmbedder] (Hailo) HEF model: {hef_path}")
             # self.hailo_runner = MyHailoFaceEmbedder(hef_path)
             raise NotImplementedError("Hailo backend for FaceEmbedder is not implemented yet.")

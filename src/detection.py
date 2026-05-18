@@ -63,7 +63,7 @@ class Detector:
             self.conf_threshold = conf_threshold
 
             print(f"[Detector] (CPU) Loading YOLO model via Ultralytics: {self.model_path}")
-            self.model = YOLO(self.model_path)
+            self.model = YOLO(self.model_path, task="detect")
 
         # -------------------
         # Hailo
