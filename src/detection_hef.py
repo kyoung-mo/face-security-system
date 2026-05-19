@@ -120,7 +120,7 @@ def _postprocess_yolo(outputs, input_h, input_w, conf_threshold, scale_x, scale_
 
 
 class Detector:
-    def __init__(self, model_path=None, conf_threshold: float = 0.2):
+    def __init__(self, model_path=None, conf_threshold: float = 0.2, vdevice=None):
         path = Path(model_path) if model_path else DEFAULT_HAILO_MODEL_PATH
         if not path.is_absolute():
             path = BASE_DIR / path
@@ -129,12 +129,15 @@ class Detector:
 
         print(f"[Detector HEF] Loading: {self.model_path}")
 
-        hef     = HEF(self.model_path)
-        devices = Device.scan()
-        if not devices:
-            raise RuntimeError("Hailo 장치를 찾을 수 없습니다.")
+        hef = HEF(self.model_path)
 
-        self.vdevice = VDevice(device_ids=devices)
+        if vdevice is not None:
+            self.vdevice = vdevice
+        else:
+            devices = Device.scan()
+            if not devices:
+                raise RuntimeError("Hailo 장치를 찾을 수 없습니다.")
+            self.vdevice = VDevice(device_ids=devices)
         cfg = ConfigureParams.create_from_hef(hef, interface=HailoStreamInterface.PCIe)
         self.network_group        = self.vdevice.configure(hef, cfg)[0]
         self.network_group_params = self.network_group.create_params()

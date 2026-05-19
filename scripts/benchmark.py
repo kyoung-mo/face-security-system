@@ -83,7 +83,7 @@ def benchmark_pipeline(num_frames: int = 100, backend: str = "cpu", show_progres
             model_path=str(PROJECT_ROOT / "models" / "mobilefacenet_zoo.hef"),
         )
     else:
-        from detection_onnx import Detector
+        from detection import Detector
         from embedding import FaceEmbedder
         detector = Detector(
             model_path=str(PROJECT_ROOT / "models" / "yolov8_face.onnx"),
