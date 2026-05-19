@@ -23,8 +23,6 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from camera import Camera
-from detection import Detector
-from embedding import FaceEmbedder
 from recognition import FaceRecognizer
 from utils.preprocess import crop_and_resize
 from utils.config_loader import load_yaml
@@ -75,17 +73,23 @@ def benchmark_pipeline(num_frames: int = 100, backend: str = "cpu", show_progres
     )
 
     if backend == "hailo":
-        det_model_path = None
+        from detection_hef import Detector
+        from embedding_hef import FaceEmbedderHEF as FaceEmbedder
+        detector = Detector(
+            model_path=str(PROJECT_ROOT / "models" / "yolov8_face_zoo.hef"),
+            conf_threshold=det_cfg.get("conf_threshold", 0.4),
+        )
+        embedder = FaceEmbedder(
+            model_path=str(PROJECT_ROOT / "models" / "mobilefacenet_zoo.hef"),
+        )
     else:
-        det_model_path = paths["models"]["yolov8_face_onnx"]
-
-    detector = Detector(
-        model_path=det_model_path,
-        conf_threshold=det_cfg.get("conf_threshold", 0.4),
-        backend=backend,
-    )
-
-    embedder  = FaceEmbedder(backend="cpu")   # 임베딩은 항상 cpu (hailo 미구현 시)
+        from detection_onnx import Detector
+        from embedding import FaceEmbedder
+        detector = Detector(
+            model_path=str(PROJECT_ROOT / "models" / "yolov8_face.onnx"),
+            conf_threshold=det_cfg.get("conf_threshold", 0.4),
+        )
+        embedder = FaceEmbedder(backend="cpu")
     recognizer = FaceRecognizer(backend=backend)
 
     # ── 누적 변수 ──────────────────────────────────
