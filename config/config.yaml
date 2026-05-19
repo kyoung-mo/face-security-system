@@ -25,7 +25,7 @@ models:
   detection:
     onnx_path: "models/yolov8_face.onnx"
   embedding:
-    onnx_path: "models/facenet.onnx"
+    onnx_path: "models/mobilefacenet.onnx"
   recognition:
     embedding_dim: 512
     threshold: 0.9
