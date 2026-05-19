@@ -95,7 +95,7 @@ def benchmark_pipeline(num_frames: int = 100, backend: str = "cpu", show_progres
             conf_threshold=det_cfg.get("conf_threshold", 0.4),
         )
         embedder = FaceEmbedder(backend="cpu")
-    recognizer = FaceRecognizer(backend=backend)
+    recognizer = FaceRecognizer(backend="cpu")
 
     # ── 누적 변수 ──────────────────────────────────
     t_capture_list    = []
