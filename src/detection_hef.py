@@ -76,7 +76,7 @@ def _postprocess_yolo(outputs, input_h, input_w, conf_threshold, scale_x, scale_
         box_raw = box_raw.reshape(N, -1)
         cls_raw = cls_raw.reshape(N, -1)
 
-        scores = 1 / (1 + np.exp(-cls_raw[:, 0]))
+        scores = cls_raw[:, 0]  # HEF에서 이미 sigmoid 적용
         mask = scores >= conf_threshold
         if not mask.any():
             continue
