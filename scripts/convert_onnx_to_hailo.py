@@ -33,7 +33,7 @@ def get_model_config(model_name: str):
             "input_height": 320,
             "input_width": 320,
             "input_ch": 3,
-            "end_nodes": ["/model.22/Sigmoid", "/model.22/Concat"],
+            "end_nodes": ["/model.22/cv2.0/cv2.0.2/Conv", "/model.22/cv3.0/cv3.0.2/Conv", "/model.22/cv2.1/cv2.1.2/Conv", "/model.22/cv3.1/cv3.1.2/Conv", "/model.22/cv2.2/cv2.2.2/Conv", "/model.22/cv3.2/cv3.2.2/Conv"],
             "use_a16w16": False,
         }
     elif model_name == "facenet":

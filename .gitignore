@@ -48,3 +48,6 @@ hailo/
 # === 기타 ===
 yolov8n.pt
 check_env.py
+data/WIDER_val/
+data/WIDER_val.zip
+data/calib_images/
