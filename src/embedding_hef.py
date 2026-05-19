@@ -14,7 +14,7 @@ DEFAULT_HEF_PATH = BASE_DIR / "models" / "mobilefacenet_zoo.hef"
 
 
 class FaceEmbedderHEF:
-    def __init__(self, model_path=None):
+    def __init__(self, model_path=None, vdevice=None):
         path = Path(model_path) if model_path else DEFAULT_HEF_PATH
         if not path.is_absolute():
             path = BASE_DIR / path
@@ -24,11 +24,15 @@ class FaceEmbedderHEF:
         print(f"[FaceEmbedderHEF] Loading: {self.model_path}")
 
         hef = HEF(self.model_path)
-        devices = Device.scan()
-        if not devices:
-            raise RuntimeError("Hailo 장치를 찾을 수 없습니다.")
 
-        self.vdevice = VDevice(device_ids=devices)
+        if vdevice is not None:
+            self.vdevice = vdevice
+        else:
+            devices = Device.scan()
+            if not devices:
+                raise RuntimeError("Hailo 장치를 찾을 수 없습니다.")
+            self.vdevice = VDevice(device_ids=devices)
+
         cfg = ConfigureParams.create_from_hef(hef, interface=HailoStreamInterface.PCIe)
         self.network_group        = self.vdevice.configure(hef, cfg)[0]
         self.network_group_params = self.network_group.create_params()

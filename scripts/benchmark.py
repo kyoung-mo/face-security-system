@@ -75,12 +75,17 @@ def benchmark_pipeline(num_frames: int = 100, backend: str = "cpu", show_progres
     if backend == "hailo":
         from detection_hef import Detector
         from embedding_hef import FaceEmbedderHEF as FaceEmbedder
+        from hailo_platform import Device, VDevice
+        devices = Device.scan()
+        shared_vdevice = VDevice(device_ids=devices)
         detector = Detector(
             model_path=str(PROJECT_ROOT / "models" / "yolov8_face_zoo.hef"),
             conf_threshold=det_cfg.get("conf_threshold", 0.4),
+            vdevice=shared_vdevice,
         )
         embedder = FaceEmbedder(
             model_path=str(PROJECT_ROOT / "models" / "mobilefacenet_zoo.hef"),
+            vdevice=shared_vdevice,
         )
     else:
         from detection import Detector
